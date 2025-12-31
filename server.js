@@ -674,6 +674,8 @@ app.post("/contact", requireLogin, (req, res) => {
 // =====================
 // SERVER START
 // =====================
-app.listen(3000, () => {
-  console.log("Cargo King running at http://localhost:3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Cargo King running on port", PORT);
 });
