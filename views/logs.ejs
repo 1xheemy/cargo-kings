@@ -1,0 +1,14 @@
+<h2>Log Work</h2>
+
+<form method="POST" action="/log">
+  <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+  <input name="vehicle" placeholder="Vehicle ID / Plate" class="form-control">
+  <input name="hours" type="number" placeholder="Hours Worked" class="form-control">
+  <input name="damage" placeholder="Damage (optional)" class="form-control">
+  <input name="fuel" type="number" placeholder="Fuel Level %" class="form-control">
+  <select name="insurance" class="form-control">
+    <option>Active</option>
+    <option>Expired</option>
+  </select>
+  <button class="btn btn-primary">Submit Log</button>
+</form>

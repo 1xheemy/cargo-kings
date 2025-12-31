@@ -1,0 +1,9 @@
+<h2>Contact Cargo King</h2>
+
+<form method="POST" action="/contact">
+  <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+  <input name="name" placeholder="Your Name" class="form-control">
+  <input name="email" placeholder="Email" class="form-control">
+  <textarea name="message" placeholder="Message" class="form-control"></textarea>
+  <button class="btn btn-primary">Send</button>
+</form>

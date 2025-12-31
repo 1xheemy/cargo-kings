@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+
+# Local env files (do not commit secrets)
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Build / output
+dist/
+build/
+
+# Temporary
+tmp/
+*.tmp
+
+# IMPORTANT: Do NOT ignore database.db — Railway will host it as-is and we want it committed
+# If you need to ignore a local dev DB, use database.dev.db or an explicit pattern; do not add 'database.db' here.

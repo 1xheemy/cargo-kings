@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cargo King</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="">
+
+<div class="app">
+  
+    <header class="topbar">
+      <nav>
+        <a href="/">Login</a>
+        <a href="/signup">Sign Up</a>
+      </nav>
+    </header>
+  
+
+  <main class="content">
+    <div class="page">
+      
+      <div class="auth-box">
+  <h1>CARGO KING</h1>
+  <h2>Logistics Management</h2>
+
+  <form method="POST" action="/login">
+    <input type="hidden" name="_csrf" value="">
+    <input name="username" placeholder="Username" required class="form-control">
+    <input name="password" type="password" placeholder="Password" required class="form-control">
+    <button class="btn btn-primary">Login</button>
+  </form>
+
+  <p>Don't have an account? <a href="/signup">Sign up</a></p>
+</div>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

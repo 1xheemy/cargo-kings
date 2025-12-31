@@ -1,0 +1,19 @@
+<div class="auth-box">
+  <h2>Create Account</h2>
+
+  <form method="POST" action="/signup" aria-label="Create account form">
+    <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+
+    <label for="signup-badge" class="sr-only">Badge Number</label>
+    <input id="signup-badge" name="badge" placeholder="Badge Number" required class="form-control">
+
+    <label for="signup-username" class="sr-only">Username</label>
+    <input id="signup-username" name="username" placeholder="Username" required class="form-control">
+
+    <label for="signup-password" class="sr-only">Password</label>
+    <input id="signup-password" type="password" name="password" placeholder="Password" required class="form-control">
+
+    <input type="hidden" name="role" value="trucker">
+    <button class="btn btn-primary">Sign Up</button>
+  </form>
+</div>

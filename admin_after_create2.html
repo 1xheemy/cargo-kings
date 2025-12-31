@@ -1,0 +1,145 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Content-Type: text/html; charset=utf-8
+Content-Length: 3184
+ETag: W/"c70-u6Q/BStJ7Sqv+45Vu7iDzUIbctY"
+Date: Wed, 31 Dec 2025 04:21:40 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cargo King</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <h2>CARGO KING</h2>
+    <nav>
+      
+        <a href="/dashboard">Dashboard</a>
+        <a href="/logs">Log Work</a>
+
+        
+          <a href="/admin">Admin Panel</a>
+        
+
+        <a href="/contact">Contact</a>
+        <a href="/logout">Logout</a>
+      
+    </nav>
+  </aside>
+
+  <main class="content">
+    
+      <div class="flash success">User created</div>
+    
+    <h2>Admin Panel</h2>
+
+<h3>Add User</h3>
+<form method="POST" action="/admin/users/add">
+  <input name="badge" placeholder="Badge Number" required>
+  <input name="username" placeholder="Username" required>
+  <input type="password" name="password" placeholder="Password" required>
+  <select name="role">
+    <option value="trucker">Trucker</option>
+    <option value="supervisor">Supervisor</option>
+    <option value="manager">Manager</option>
+    <option value="executive">Executive</option>
+  </select>
+  <button>Create User</button>
+</form>
+
+<h3>Users</h3>
+<table border="1" cellpadding="5">
+<tr>
+  <th>Badge</th><th>User</th><th>Role</th><th>Hours</th><th>Deliveries</th><th>Actions</th>
+</tr>
+
+
+<tr>
+  <td></td>
+  <td>admin</td>
+  <td>admin</td>
+  <td>14</td>
+  <td>0</td>
+  <td>
+    <a href="/admin/users/1/edit">Edit</a>
+    
+  </td>
+</tr>
+
+<tr>
+  <td>99902</td>
+  <td>newexec2</td>
+  <td>executive</td>
+  <td>0</td>
+  <td>0</td>
+  <td>
+    <a href="/admin/users/4/edit">Edit</a>
+    
+      <form method="POST" action="/admin/users/4/delete" style="display:inline; margin-left:8px">
+        <button type="submit" onclick="return confirm('Delete user newexec2?')">Delete</button>
+      </form>
+    
+  </td>
+</tr>
+
+<tr>
+  <td>82389</td>
+  <td>smoketest_1767154152186_343</td>
+  <td>trucker</td>
+  <td>0</td>
+  <td>0</td>
+  <td>
+    <a href="/admin/users/3/edit">Edit</a>
+    
+      <form method="POST" action="/admin/users/3/delete" style="display:inline; margin-left:8px">
+        <button type="submit" onclick="return confirm('Delete user smoketest_1767154152186_343?')">Delete</button>
+      </form>
+    
+  </td>
+</tr>
+
+<tr>
+  <td>87654</td>
+  <td>smoketest_manual_2</td>
+  <td>trucker</td>
+  <td>0</td>
+  <td>0</td>
+  <td>
+    <a href="/admin/users/2/edit">Edit</a>
+    
+      <form method="POST" action="/admin/users/2/delete" style="display:inline; margin-left:8px">
+        <button type="submit" onclick="return confirm('Delete user smoketest_manual_2?')">Delete</button>
+      </form>
+    
+  </td>
+</tr>
+
+</table>
+
+<h3>Recent Admin Actions</h3>
+
+  <table border="1" cellpadding="5">
+    <tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th></tr>
+    
+      <tr>
+        <td>2025-12-31T04:21:34.192Z</td>
+        <td>admin</td>
+        <td>create_user</td>
+        <td>newexec2</td>
+        <td>{&#34;badge&#34;:&#34;99902&#34;,&#34;username&#34;:&#34;newexec2&#34;,&#34;role&#34;:&#34;executive&#34;}</td>
+      </tr>
+    
+  </table>
+
+
+  </main>
+</div>
+
+</body>
+</html>

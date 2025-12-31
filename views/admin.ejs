@@ -1,0 +1,76 @@
+<h2>Admin Panel</h2>
+
+<h3>Add User</h3>
+<form method="POST" action="/admin/users/add" class="form-add-user">
+  <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+  <div class="form-row">
+    <input name="badge" placeholder="Badge Number" required class="form-control">
+    <input name="username" placeholder="Username" required class="form-control">
+  </div>
+  <div class="form-row">
+    <input type="password" name="password" placeholder="Password" required class="form-control">
+    <select name="role" class="form-control">
+    <% if (user && user.role === 'executive') { %>
+      <option value="executive">Executive</option>
+      <option value="manager">Manager</option>
+      <option value="supervisor">Supervisor</option>
+      <option value="trucker" selected>Trucker</option>
+    <% } else if (user && user.role === 'manager') { %>
+      <option value="supervisor">Supervisor</option>
+      <option value="trucker" selected>Trucker</option>
+    <% } else if (user && user.role === 'supervisor') { %>
+      <option value="trucker" selected>Trucker</option>
+    <% } else { %>
+      <option value="trucker" selected>Trucker</option>
+    <% } %>
+    </select>
+  </div>
+  <button class="btn btn-primary">Create User</button>
+</form>
+
+<h3>Users</h3>
+<table class="table">
+<thead>
+<tr>
+  <th>Badge</th><th>User</th><th>Role</th><th>Hours</th><th>Deliveries</th><th style="text-align:right">Actions</th>
+</tr>
+</thead>
+<tbody>
+<% users.forEach((u, i)=>{ %>
+<tr class="row-<%= (i % 2 === 0) ? 'even' : 'odd' %>">
+  <td data-label="Badge"><%=u.badge%></td>
+  <td data-label="User"><strong><%=u.username%></strong></td>
+  <td data-label="Role"><%=u.role%></td>
+  <td data-label="Hours"><%=u.hours%></td>
+  <td data-label="Deliveries"><%=u.deliveries%></td>
+  <td data-label="Actions" style="text-align:right">
+      <a class="btn btn-ghost" href="/admin/users/<%=u.id%>/edit">Edit</a>
+    <% if (u.username !== 'admin') { %>
+      <form method="POST" action="/admin/users/<%=u.id%>/delete" style="display:inline; margin-left:8px">
+        <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Delete user <%=u.username%>?')">Delete</button>
+      </form>
+    <% } %>
+  </td>
+</tr>
+<% }) %>
+</tbody>
+</table>
+
+<h3>Recent Admin Actions</h3>
+<% if (audits && audits.length) { %>
+  <table border="1" cellpadding="5">
+    <tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th><th>Details</th></tr>
+    <% audits.forEach(a=>{ %>
+      <tr>
+        <td><%= a.created_at %></td>
+        <td><%= a.admin_name || a.admin_id %></td>
+        <td><%= a.action %></td>
+        <td><%= a.target_name || a.target_id %></td>
+        <td><%= a.details %></td>
+      </tr>
+    <% }) %>
+  </table>
+<% } else { %>
+  <p>No admin actions yet.</p>
+<% } %>

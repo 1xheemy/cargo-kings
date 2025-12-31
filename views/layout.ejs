@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cargo King</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="<%= (typeof bodyClass !== 'undefined' ? bodyClass : '') %>">
+
+<div class="app">
+  <% if (user) { %>
+  <aside class="sidebar">
+    <h2>CARGO KING</h2>
+    <nav>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/logs">Log Work</a>
+
+        <% if (user && user.role !== 'trucker') { %>
+          <a href="/admin">Admin Panel</a>
+        <% } %>
+
+        <a href="/contact">Contact</a>
+        <a href="/logout">Logout</a>
+    </nav>
+  </aside>
+  <% } else { %>
+    <header class="topbar">
+      <nav>
+        <a href="/">Login</a>
+        <a href="/signup">Sign Up</a>
+      </nav>
+    </header>
+  <% } %>
+
+  <main class="content">
+    <div class="page">
+      <% if (typeof flash !== 'undefined' && flash) { %>
+        <div class="flash <%= flash.type %>"><%= flash.message %></div>
+      <% } %>
+      <%- body %>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

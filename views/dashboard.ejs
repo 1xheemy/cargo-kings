@@ -1,0 +1,91 @@
+<h2>Welcome, <%= user.username %></h2>
+
+<div class="dashboard-grid">
+  <div class="stats">
+    <p>Badge: <%= user.badge %></p>
+    <p>Role: <%= user.role %></p>
+    <p>Hours: <%= user.hours %></p>
+    <p>Deliveries: <%= user.deliveries %></p>
+    <p><a href="/profile">Edit Profile</a></p>
+  </div>
+
+  <div class="right-col">
+    <div class="log-form">
+      <form method="POST" action="/log" aria-label="Submit work log">
+        <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+
+        <div class="form-group">
+          <label for="log-vehicle">Vehicle</label>
+          <input id="log-vehicle" name="vehicle" placeholder="Vehicle (e.g., Truck or Trailer)" class="form-control">
+        </div>
+
+        <div class="form-row">
+          <div style="flex:1">
+            <label for="log-plate">Plate</label>
+            <input id="log-plate" name="plate" placeholder="Plate #" class="form-control">
+          </div>
+          <div style="width:120px">
+            <label for="log-deliveries">Deliveries</label>
+            <input id="log-deliveries" name="deliveries" type="number" min="0" placeholder="#" class="form-control">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div style="flex:1">
+            <label for="log-damage">Damage</label>
+            <select id="log-damage" name="damage" class="form-control">
+              <option>None</option>
+              <option>Slight</option>
+              <option>Moderate</option>
+            </select>
+          </div>
+
+          <div style="width:160px; margin-left:12px">
+            <label for="log-fuel">Fuel Level</label>
+            <select id="log-fuel" name="fuel" class="form-control">
+              <option>below 20%</option>
+              <option>20-50%</option>
+              <option>50-80%</option>
+              <option>80% and above</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div style="flex:1">
+            <label for="log-insurance">Insurance</label>
+            <select id="log-insurance" name="insurance" class="form-control">
+              <option>Active</option>
+              <option>Expired</option>
+            </select>
+          </div>
+          <div style="flex:1; margin-left:12px">
+            <label for="log-notes">Notes for the Leads</label>
+            <input id="log-notes" name="notes" placeholder="Notes for the Leads" class="form-control">
+          </div>
+        </div>
+
+        <button class="btn btn-primary">Submit Log</button>
+      </form>
+    </div>
+
+    <div class="recent-logs">
+      <h3>Recent Logs</h3>
+      <ul class="logs-list">
+  <% logs.forEach(l=>{ %>
+    <li data-id="<%= l.id %>">
+      <div><strong><%= l.vehicle %></strong> — Plate: <%= l.plate || 'N/A' %></div>
+      <div>Hours: <%= l.hours || 0 %> | Deliveries: <%= l.deliveries || 0 %></div>
+      <div>Fuel: <%= l.fuel || 'N/A' %> | Damage: <%= l.damage || 'None' %> | Insurance: <%= l.insurance || 'N/A' %></div>
+      <% if (l.notes) { %>
+        <div><em>Notes:</em> <%= l.notes %></div>
+      <% } %>
+      <% if (user.id === l.user_id || user.role !== 'trucker') { %>
+        <form method="POST" action="/logs/<%= l.id %>/delete" style="display:inline; margin-left:10px">
+          <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+          <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+        </form>
+      <% } %>
+    </li>
+  <% }) %>
+</ul>

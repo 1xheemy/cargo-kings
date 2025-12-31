@@ -1,0 +1,19 @@
+<h2>Profile</h2>
+
+<% if (flash) { %>
+  <div class="flash <%= flash.type %>"><%= flash.message %></div>
+<% } %>
+
+<form method="POST" action="/profile">
+  <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
+  <label>Badge (read-only)</label>
+  <input name="badge" value="<%= user.badge %>" readonly class="form-control">
+
+  <label>Username</label>
+  <input name="username" value="<%= user.username %>" required class="form-control">
+
+  <label>New Password (leave empty to keep current)</label>
+  <input type="password" name="password" class="form-control">
+
+  <button class="btn btn-primary">Update Profile</button>
+</form>
