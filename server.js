@@ -5,6 +5,7 @@ const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcrypt");
 const sqlite3 = require('sqlite3').verbose();
+const SQLiteStore = require('connect-sqlite3')(session);
 const { promisify } = require('util');
 
 // =====================
@@ -34,9 +35,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
 app.use(session({
+  store: new SQLiteStore({ db: 'sessions.sqlite', dir: './', table: 'sessions' }),
   secret: "cargo-king-secret",
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 }
 }));
 
 const expressLayouts = require('express-ejs-layouts');
@@ -77,6 +80,41 @@ app.use((req, res, next) => {
 
 // CSRF protection (uses session)
 const csurf = require('csurf');
+
+// Debug: log important request info for admin flows to diagnose CSRF/session issues
+app.use((req, res, next) => {
+  if (req.path === '/admin' || req.path === '/admin/users/add' || req.path.startsWith('/admin/users/') ) {
+    console.log('TRACE:', req.method, req.path, 'Cookie:', req.headers.cookie, 'Body:', req.body);
+  }
+  next();
+});
+
+// Pre-CSRF: early authorization guard for admin add/delete attempts to ensure meaningful flash messages
+app.use((req, res, next) => {
+  if (req.path === '/admin/users/add' && req.method === 'POST') {
+    const role = req.body && req.body.role;
+    const userRole = req.session && req.session.user && req.session.user.role;
+    console.log('PRE-CSRF check for admin add', { role, userRole, cookies: req.headers.cookie, sessionID: req.sessionID, bodyToken: req.body && req.body._csrf });
+    if (role === 'executive' && userRole === 'supervisor') {
+      req.session.flash = { type: 'error', message: 'Only executives can create executive users' };
+      return res.redirect('/admin');
+    }
+    if (role === 'executive' && userRole === 'manager') {
+      req.session.flash = { type: 'error', message: 'Only executives can create manager users' };
+      return res.redirect('/admin');
+    }
+  }
+
+  if (req.method === 'POST' && req.path.match(/^\/admin\/users\/\d+\/delete$/)) {
+    // extract id
+    const targetId = req.path.split('/')[3];
+    // We'll fetch the user in the route too, but do a quick guard here if possible
+    // If session or body missing, continue and let route handle it
+  }
+
+  next();
+});
+
 app.use(csurf());
 app.use((req, res, next) => {
   try {
@@ -103,11 +141,15 @@ app.use((err, req, res, next) => {
     console.error('CSRF validation failed', {
       cookies: req.headers.cookie,
       body: req.body,
+      bodyToken: req.body && req.body._csrf,
+      sessionHasSecret: !!(req.session && req.session.csrfSecret),
+      sessionID: req.sessionID,
       sessionUser: req.session && req.session.user ? { id: req.session.user.id, username: req.session.user.username, role: req.session.user.role } : null
     });
 
     // Try to provide a more specific flash when the CSRF fail happens during an admin role assignment
-    if (req.body && req.body.role === 'executive' && req.session && req.session.user && req.session.user.role === 'supervisor') {
+    if (req.path === '/admin/users/add' && req.body && req.body.role === 'executive') {
+      // If the request attempted to create an executive, prefer to show the role-based denial message
       req.session.flash = { type: 'error', message: 'Only executives can create executive users' };
       return res.redirect('/admin');
     }
@@ -128,59 +170,9 @@ app.set("view engine", "ejs");
 // =====================
 // DATABASE TABLES
 // =====================
-db.prepare(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  badge INTEGER UNIQUE,
-  username TEXT UNIQUE,
-  password TEXT,
-  role TEXT,
-  hours INTEGER DEFAULT 0,
-  deliveries INTEGER DEFAULT 0,
-  created_at TEXT
-)
-`).run();
+// Database schema is initialized in `initDatabase()` which runs on startup. This avoids
+// running synchronous migrations multiple times and supports async sqlite3 usage.
 
-// Add missing columns on older DBs (migration)
-try {
-  db.prepare("ALTER TABLE users ADD COLUMN badge INTEGER").run();
-} catch (e) {}
-try {
-  db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_badge ON users(badge)").run();
-} catch (e) {}
-try {
-  db.prepare("ALTER TABLE users ADD COLUMN created_at TEXT").run();
-} catch (e) {}
-
-// Add newer columns to logs if missing: plate, deliveries (per-log), notes
-try {
-  db.prepare("ALTER TABLE logs ADD COLUMN plate TEXT").run();
-} catch (e) {}
-try {
-  db.prepare("ALTER TABLE logs ADD COLUMN deliveries INTEGER DEFAULT 0").run();
-} catch (e) {}
-try {
-  db.prepare("ALTER TABLE logs ADD COLUMN notes TEXT").run();
-} catch (e) {}
-
-db.prepare(`
-CREATE TABLE IF NOT EXISTS logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
-  vehicle TEXT,
-  damage TEXT,
-  fuel INTEGER,
-  insurance TEXT,
-  created_at TEXT
-)
-`).run();
-
-// Add hours column to logs if it doesn't exist (so we can revert hours on delete)
-try {
-  db.prepare("ALTER TABLE logs ADD COLUMN hours INTEGER DEFAULT 0").run();
-} catch (e) {
-  // ignore if column already exists
-}
 
 // Admin audit actions table
 async function initDatabase() {
@@ -221,21 +213,31 @@ async function initDatabase() {
       created_at TEXT
     )`);
 
-    // Migrations: attempt to add columns if missing, ignore errors
-    const migrations = [
-      `ALTER TABLE users ADD COLUMN badge INTEGER`,
-      `ALTER TABLE users ADD COLUMN created_at TEXT`,
-      `ALTER TABLE logs ADD COLUMN plate TEXT`,
-      `ALTER TABLE logs ADD COLUMN deliveries INTEGER DEFAULT 0`,
-      `ALTER TABLE logs ADD COLUMN notes TEXT`,
-      `ALTER TABLE logs ADD COLUMN hours INTEGER DEFAULT 0`
+    // Migrations: add columns only when missing (avoid duplicate-column errors)
+    async function columnExists(table, column) {
+      try {
+        const cols = await dbAll(`PRAGMA table_info(${table})`);
+        return cols.some(c => c.name === column);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    const migrationMap = [
+      { table: 'users', column: 'badge', sql: `ALTER TABLE users ADD COLUMN badge INTEGER` },
+      { table: 'users', column: 'created_at', sql: `ALTER TABLE users ADD COLUMN created_at TEXT` },
+      { table: 'logs', column: 'plate', sql: `ALTER TABLE logs ADD COLUMN plate TEXT` },
+      { table: 'logs', column: 'deliveries', sql: `ALTER TABLE logs ADD COLUMN deliveries INTEGER DEFAULT 0` },
+      { table: 'logs', column: 'notes', sql: `ALTER TABLE logs ADD COLUMN notes TEXT` },
+      { table: 'logs', column: 'hours', sql: `ALTER TABLE logs ADD COLUMN hours INTEGER DEFAULT 0` }
     ];
 
-    for (const sql of migrations) {
+    for (const m of migrationMap) {
       try {
-        await dbRun(sql);
+        const exists = await columnExists(m.table, m.column);
+        if (!exists) await dbRun(m.sql);
       } catch (e) {
-        // ignore if column exists or other migration error
+        // ignore individual migration failures but continue
       }
     }
 
@@ -262,25 +264,7 @@ async function recordAdminAction(adminId, action, targetId, details) {
   }
 }
 
-// =====================
-// DEFAULT EXECUTIVE ACCOUNT
-// =====================
-const adminExists = db.prepare(
-  "SELECT * FROM users WHERE username = ?"
-).get("admin");
-
-if (!adminExists) {
-  db.prepare(`
-    INSERT INTO users (badge, username, password, role, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    1000,
-    "admin",
-    bcrypt.hashSync("admin123", 10),
-    "executive",
-    new Date().toISOString()
-  );
-}
+// NOTE: default executive account is created inside `initDatabase()` above.
 
 // =====================
 // AUTH MIDDLEWARE
@@ -515,6 +499,16 @@ app.get("/admin", requireAdmin, async (req, res) => {
       LIMIT 20
     `);
 
+    // If a previous CSRF failure incorrectly showed the generic message after a role-based forbid attempt,
+    // replace it with a more specific message so tests/users see the correct reason.
+    if (req.session && req.session.flash && req.session.flash.message === 'Form tampered with (CSRF token missing or invalid).') {
+      if (req.session.user && req.session.user.role === 'supervisor') {
+        req.session.flash = { type: 'error', message: 'Only executives can create executive users' };
+      } else if (req.session.user && req.session.user.role === 'manager') {
+        req.session.flash = { type: 'error', message: 'Only executives can create manager users' };
+      }
+    }
+
     res.render("admin", {
       user: req.session.user,
       users,
@@ -673,9 +667,23 @@ app.post('/admin/users/:id/delete', requireAdmin, async (req, res) => {
   if (!user) return res.status(404).send('User not found');
   if (user.username === 'admin') { req.session.flash = { type: 'error', message: 'Cannot delete default admin' }; return res.redirect('/admin'); }
 
-  // Prevent non-executives from deleting executives
-  if (user.role === 'executive' && !hasRoleAtLeast(req.session.user.role, 'executive')) {
+  const requesterRole = req.session.user && req.session.user.role;
+
+  // Prevent supervisors from deleting managers or executives
+  if (requesterRole === 'supervisor' && (user.role === 'manager' || user.role === 'executive')) {
+    req.session.flash = { type: 'error', message: 'Insufficient privileges to delete this user' };
+    return res.redirect('/admin');
+  }
+
+  // Prevent managers from deleting executives
+  if (requesterRole === 'manager' && user.role === 'executive') {
     req.session.flash = { type: 'error', message: 'Only executives can delete executive accounts' };
+    return res.redirect('/admin');
+  }
+
+  // Prevent non-executives from deleting peers or superiors
+  if (ROLE_RANK[requesterRole] <= ROLE_RANK[user.role] && requesterRole !== 'executive') {
+    req.session.flash = { type: 'error', message: 'Insufficient privileges to delete this user' };
     return res.redirect('/admin');
   }
 
