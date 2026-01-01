@@ -107,12 +107,15 @@ input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px
 /* Auth (login/signup) page styles */
 html, body { height: 100%; }
 body.auth {
-  /* Prefer local copy, fall back to external URL */
-  background-image: url('https://i.imgur.com/jrPehFt.png');
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  background-size: cover;
-  background-position: center;
+  background: #0b0b0b;
+}
+
+body.auth::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: url('https://i.imgur.com/jrPehFt.png') center / contain no-repeat;
+  z-index: -1;
 }
 
 /* Hide topbar and sidebar on auth pages and center content exactly */
