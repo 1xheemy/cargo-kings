@@ -1,3 +1,76 @@
+/* ---- LOGIN WRAPPER & FORM (Blended) ---- */
+.login-wrapper {
+  background: #181818;
+  width: 370px;
+  padding: 32px 28px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+  margin: 32px auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-form h2 {
+  text-align: center;
+  margin-bottom: 20px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.login-form .input-group {
+  margin-bottom: 16px;
+}
+
+.login-form .input-group label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.login-form .input-group input {
+  width: 100%;
+  padding: 10px;
+  font-size: 15px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.login-form button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(180deg,var(--gold),#b1851f);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  transition: background 0.18s;
+}
+.login-form button:hover {
+  background: linear-gradient(180deg,#b1851f,var(--gold));
+}
+
+.login-form .signup-link {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.login-form .signup-link a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.login-form .signup-link a:hover {
+  text-decoration: underline;
+}
 :root{
   --bg:#0b0b0b;
   --panel:#111;

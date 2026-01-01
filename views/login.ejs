@@ -1,19 +1,21 @@
-<div class="auth-box" role="region" aria-label="Login">
-  <h1 style="text-align:center">CARGO KING</h1>
-  <h2 class="muted" style="text-align:center">Logistics Management</h2>
-
-  <form method="POST" action="/login" aria-describedby="login-help">
+<div class="login-wrapper" role="region" aria-label="Login">
+  <form class="login-form" method="POST" action="/login" aria-describedby="login-help">
     <input type="hidden" name="_csrf" value="<%= (typeof csrfToken !== 'undefined' ? csrfToken : '') %>">
-
-    <label for="login-username" class="sr-only">Username</label>
-    <input id="login-username" name="username" placeholder="Username" required class="form-control" aria-label="Username">
-
-    <label for="login-password" class="sr-only">Password</label>
-    <input id="login-password" name="password" type="password" placeholder="Password" required class="form-control" aria-label="Password">
-
-    <button class="btn btn-primary">Login</button>
-    <p id="login-help" class="muted" style="text-align:center; margin-top:12px">Enter your username and password to access the dashboard</p>
+    <h2>Login</h2>
+    <div class="input-group">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="Enter username" required>
+    </div>
+    <div class="input-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter password" required>
+    </div>
+    <button type="submit">Log In</button>
+    <p id="login-help" class="signup-link">
+      Enter your username and password to access the dashboard
+    </p>
+    <p class="signup-link">
+      Don't have an account? <a href="/signup">Sign up</a>
+    </p>
   </form>
-
-  <p style="text-align:center">Don't have an account? <a href="/signup">Sign Up</a></p>
 </div>
