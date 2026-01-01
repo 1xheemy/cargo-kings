@@ -4,13 +4,28 @@
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcrypt");
-const SQLite = require("better-sqlite3");
+const sqlite3 = require('sqlite3').verbose();
+const { promisify } = require('util');
 
 // =====================
 // APP & DATABASE
 // =====================
 const app = express();
-const db = new SQLite("database.db");
+const db = new sqlite3.Database("database.db", (err) => {
+  if (err) {
+    console.error('Failed to open database', err);
+    process.exit(1);
+  }
+});
+
+const dbRun = (...args) => new Promise((resolve, reject) => {
+  db.run(...args, function(err) {
+    if (err) return reject(err);
+    resolve(this);
+  });
+});
+const dbGet = promisify(db.get.bind(db));
+const dbAll = promisify(db.all.bind(db));
 
 // =====================
 // MIDDLEWARE
@@ -85,6 +100,18 @@ app.use((req, res, next) => {
 // CSRF error handler
 app.use((err, req, res, next) => {
   if (err && err.code === 'EBADCSRFTOKEN') {
+    console.error('CSRF validation failed', {
+      cookies: req.headers.cookie,
+      body: req.body,
+      sessionUser: req.session && req.session.user ? { id: req.session.user.id, username: req.session.user.username, role: req.session.user.role } : null
+    });
+
+    // Try to provide a more specific flash when the CSRF fail happens during an admin role assignment
+    if (req.body && req.body.role === 'executive' && req.session && req.session.user && req.session.user.role === 'supervisor') {
+      req.session.flash = { type: 'error', message: 'Only executives can create executive users' };
+      return res.redirect('/admin');
+    }
+
     res.status(403);
     req.session.flash = { type: 'error', message: 'Form tampered with (CSRF token missing or invalid).' };
     return res.redirect('back');
@@ -156,21 +183,80 @@ try {
 }
 
 // Admin audit actions table
-db.prepare(`
-CREATE TABLE IF NOT EXISTS admin_actions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  admin_id INTEGER,
-  action TEXT,
-  target_id INTEGER,
-  details TEXT,
-  created_at TEXT
-)
-`).run();
-
-function recordAdminAction(adminId, action, targetId, details) {
+async function initDatabase() {
   try {
-    db.prepare(`INSERT INTO admin_actions (admin_id, action, target_id, details, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(adminId, action, targetId || null, details ? JSON.stringify(details) : null, new Date().toISOString());
+    await dbRun(`CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      badge INTEGER UNIQUE,
+      username TEXT UNIQUE,
+      password TEXT,
+      role TEXT,
+      hours INTEGER DEFAULT 0,
+      deliveries INTEGER DEFAULT 0,
+      created_at TEXT
+    )`);
+
+    await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_badge ON users(badge)`);
+
+    await dbRun(`CREATE TABLE IF NOT EXISTS logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      vehicle TEXT,
+      damage TEXT,
+      fuel INTEGER,
+      insurance TEXT,
+      created_at TEXT,
+      plate TEXT,
+      deliveries INTEGER DEFAULT 0,
+      notes TEXT,
+      hours INTEGER DEFAULT 0
+    )`);
+
+    await dbRun(`CREATE TABLE IF NOT EXISTS admin_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_id INTEGER,
+      action TEXT,
+      target_id INTEGER,
+      details TEXT,
+      created_at TEXT
+    )`);
+
+    // Migrations: attempt to add columns if missing, ignore errors
+    const migrations = [
+      `ALTER TABLE users ADD COLUMN badge INTEGER`,
+      `ALTER TABLE users ADD COLUMN created_at TEXT`,
+      `ALTER TABLE logs ADD COLUMN plate TEXT`,
+      `ALTER TABLE logs ADD COLUMN deliveries INTEGER DEFAULT 0`,
+      `ALTER TABLE logs ADD COLUMN notes TEXT`,
+      `ALTER TABLE logs ADD COLUMN hours INTEGER DEFAULT 0`
+    ];
+
+    for (const sql of migrations) {
+      try {
+        await dbRun(sql);
+      } catch (e) {
+        // ignore if column exists or other migration error
+      }
+    }
+
+    // Default executive account
+    const adminExists = await dbGet("SELECT * FROM users WHERE username = ?", ['admin']);
+    if (!adminExists) {
+      await dbRun(`INSERT INTO users (badge, username, password, role, created_at) VALUES (?, ?, ?, ?, ?)`,
+        [1000, 'admin', bcrypt.hashSync('admin123', 10), 'executive', new Date().toISOString()]);
+    }
+
+    console.log('Database initialized');
+  } catch (e) {
+    console.error('Database initialization failed', e);
+    throw e;
+  }
+}
+
+async function recordAdminAction(adminId, action, targetId, details) {
+  try {
+    await dbRun(`INSERT INTO admin_actions (admin_id, action, target_id, details, created_at) VALUES (?, ?, ?, ?, ?)`,
+      adminId, action, targetId || null, details ? JSON.stringify(details) : null, new Date().toISOString());
   } catch (e) {
     console.error('Failed to record admin action', e);
   }
@@ -226,41 +312,41 @@ app.get("/signup", (req, res) => {
   res.render("signup", { bodyClass: 'auth', csrfToken: res.locals.csrfToken });
 });
 
-app.post("/login", (req, res) => {
-  const user = db.prepare(
-    "SELECT * FROM users WHERE username = ?"
-  ).get(req.body.username);
+app.post("/login", async (req, res) => {
+  try {
+    const user = await dbGet("SELECT * FROM users WHERE username = ?", [req.body.username]);
 
-  if (!user || !bcrypt.compareSync(req.body.password, user.password)) {
-    return res.status(401).send("Invalid username or password");
+    if (!user || !bcrypt.compareSync(req.body.password, user.password)) {
+      return res.status(401).send("Invalid username or password");
+    }
+
+    // Store only minimal user info in session (avoid storing password hash)
+    req.session.user = {
+      id: user.id,
+      badge: user.badge,
+      username: user.username,
+      role: user.role,
+      hours: user.hours,
+      deliveries: user.deliveries
+    };
+
+    res.redirect("/dashboard");
+  } catch (e) {
+    console.error('Login error', e);
+    res.status(500).send('Server error');
   }
-
-  // Store only minimal user info in session (avoid storing password hash)
-  req.session.user = {
-    id: user.id,
-    badge: user.badge,
-    username: user.username,
-    role: user.role,
-    hours: user.hours,
-    deliveries: user.deliveries
-  };
-
-  res.redirect("/dashboard");
 });
 
 // signup route consolidated (duplicate removed)
 
-app.post("/signup", (req, res) => {
+app.post("/signup", async (req, res) => {
   const hash = bcrypt.hashSync(req.body.password, 10);
 
   // Public signups should always be regular truckers for safety
   const publicRole = 'trucker';
 
   try {
-    db.prepare(`
-      INSERT INTO users (badge, username, password, role, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
+    await dbRun(`INSERT INTO users (badge, username, password, role, created_at) VALUES (?, ?, ?, ?, ?)`,
       req.body.badge,
       req.body.username,
       hash,
@@ -283,36 +369,34 @@ app.get("/logout", (req, res) => {
 // =====================
 // ROUTES — DASHBOARD
 // =====================
-app.get("/dashboard", requireLogin, (req, res) => {
-  // Always fetch the latest user info
-  const user = db.prepare(
-    "SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?"
-  ).get(req.session.user.id);
-
-  let logs;
-  if (user.role === 'trucker') {
-    logs = db.prepare(`
-      SELECT logs.*, users.username
-      FROM logs
-      JOIN users ON users.id = logs.user_id
-      WHERE user_id = ?
-      ORDER BY logs.created_at DESC
-    `).all(user.id);
-  } else {
-    // non-trucker roles can see all logs
-    logs = db.prepare(`
-      SELECT logs.*, users.username
-      FROM logs
-      JOIN users ON users.id = logs.user_id
-      ORDER BY logs.created_at DESC
-    `).all();
-  }
-
-  // Debug: ensure CSRF and user are present for template rendering
-  console.log('DEBUG /dashboard: req.session.user=', !!req.session.user ? { id: req.session.user.id, username: req.session.user.username, role: req.session.user.role } : null, 'res.locals.csrfToken defined=', typeof res.locals.csrfToken !== 'undefined');
-  try { console.log('DEBUG /dashboard: req.csrfToken available=', typeof req.csrfToken === 'function'); } catch (e) { console.log('DEBUG /dashboard: req.csrfToken() threw'); }
-
+app.get("/dashboard", requireLogin, async (req, res) => {
   try {
+    // Always fetch the latest user info
+    const user = await dbGet("SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?", [req.session.user.id]);
+
+    let logs;
+    if (user.role === 'trucker') {
+      logs = await dbAll(`
+        SELECT logs.*, users.username
+        FROM logs
+        JOIN users ON users.id = logs.user_id
+        WHERE user_id = ?
+        ORDER BY logs.created_at DESC
+      `, [user.id]);
+    } else {
+      // non-trucker roles can see all logs
+      logs = await dbAll(`
+        SELECT logs.*, users.username
+        FROM logs
+        JOIN users ON users.id = logs.user_id
+        ORDER BY logs.created_at DESC
+      `);
+    }
+
+    // Debug: ensure CSRF and user are present for template rendering
+    console.log('DEBUG /dashboard: req.session.user=', !!req.session.user ? { id: req.session.user.id, username: req.session.user.username, role: req.session.user.role } : null, 'res.locals.csrfToken defined=', typeof res.locals.csrfToken !== 'undefined');
+    try { console.log('DEBUG /dashboard: req.csrfToken available=', typeof req.csrfToken === 'function'); } catch (e) { console.log('DEBUG /dashboard: req.csrfToken() threw'); }
+
     res.render("dashboard", {
       user,
       logs,
@@ -320,7 +404,6 @@ app.get("/dashboard", requireLogin, (req, res) => {
     });
   } catch (e) {
     console.error('ERROR rendering dashboard:', e && e.stack ? e.stack : e);
-    // Re-throw so Express error handler can still produce the response (with stack in HTML) for tests
     throw e;
   }
 });
@@ -334,105 +417,104 @@ app.get("/logs", requireLogin, (req, res) => {
 
 // duplicate profile route removed; consolidated later in file
 
-app.post("/log", requireLogin, (req, res) => {
-  const user = req.session.user;
-  const hoursToAdd = Number(req.body.hours) || 0;
-  // Accept fuel as a category string (e.g., "below 20%", "20-50%", ...)
-  const fuelCategory = req.body.fuel || req.body.fuel_level || '';
-  const damage = req.body.damage || 'None';
-  const plate = req.body.plate || '';
-  const notes = req.body.notes || '';
-  const deliveriesReported = Number(req.body.deliveries) || 0;
-  const deliveriesToAdd = deliveriesReported > 0 ? deliveriesReported : 1; // default to 1 to preserve previous behaviour
+app.post("/log", requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const hoursToAdd = Number(req.body.hours) || 0;
+    // Accept fuel as a category string (e.g., "below 20%", "20-50%", ...)
+    const fuelCategory = req.body.fuel || req.body.fuel_level || '';
+    const damage = req.body.damage || 'None';
+    const plate = req.body.plate || '';
+    const notes = req.body.notes || '';
+    const deliveriesReported = Number(req.body.deliveries) || 0;
+    const deliveriesToAdd = deliveriesReported > 0 ? deliveriesReported : 1; // default to 1 to preserve previous behaviour
 
-  db.prepare(`
-    INSERT INTO logs (user_id, vehicle, plate, deliveries, damage, fuel, insurance, notes, created_at, hours)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    user.id,
-    req.body.vehicle,
-    plate,
-    deliveriesToAdd,
-    damage,
-    fuelCategory,
-    req.body.insurance,
-    notes,
-    new Date().toISOString(),
-    hoursToAdd
-  );
+    await dbRun(`INSERT INTO logs (user_id, vehicle, plate, deliveries, damage, fuel, insurance, notes, created_at, hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user.id,
+      req.body.vehicle,
+      plate,
+      deliveriesToAdd,
+      damage,
+      fuelCategory,
+      req.body.insurance,
+      notes,
+      new Date().toISOString(),
+      hoursToAdd
+    );
 
-  db.prepare(`
-    UPDATE users
-    SET hours = hours + ?, deliveries = deliveries + ?
-    WHERE id = ?
-  `).run(
-    hoursToAdd,
-    deliveriesToAdd,
-    user.id
-  );
+    await dbRun(`UPDATE users SET hours = hours + ?, deliveries = deliveries + ? WHERE id = ?`,
+      hoursToAdd,
+      deliveriesToAdd,
+      user.id
+    );
 
-  // Refresh session user with latest stats
-  const updatedUser = db.prepare(
-    "SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?"
-  ).get(user.id);
-  req.session.user = updatedUser;
-  res.locals.user = updatedUser;
+    // Refresh session user with latest stats
+    const updatedUser = await dbGet("SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?", [user.id]);
+    req.session.user = updatedUser;
+    res.locals.user = updatedUser;
 
-  res.redirect("/dashboard");
+    res.redirect("/dashboard");
+  } catch (e) {
+    console.error('/log error', e);
+    res.status(500).send('Server error');
+  }
 });
 
-app.post('/logs/:id/delete', requireLogin, (req, res) => {
-  const id = req.params.id;
-  const log = db.prepare('SELECT * FROM logs WHERE id = ?').get(id);
-  if (!log) return res.status(404).send('Log not found');
+app.post('/logs/:id/delete', requireLogin, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const log = await dbGet('SELECT * FROM logs WHERE id = ?', [id]);
+    if (!log) return res.status(404).send('Log not found');
 
-  // Only owner or non-trucker roles can delete
-  if (log.user_id !== req.session.user.id && req.session.user.role === 'trucker') {
-    return res.status(403).render('403');
-  }
-
-  db.prepare('DELETE FROM logs WHERE id = ?').run(id);
-
-  // Adjust user's totals if possible
-  if (log.user_id) {
-    db.prepare('UPDATE users SET hours = hours - ?, deliveries = deliveries - 1 WHERE id = ?').run(log.hours || 0, log.user_id);
-
-    if (log.user_id === req.session.user.id) {
-      // Refresh session user
-      const updatedUser = db.prepare(
-        "SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?"
-      ).get(log.user_id);
-      req.session.user = updatedUser;
-      res.locals.user = updatedUser;
+    // Only owner or non-trucker roles can delete
+    if (log.user_id !== req.session.user.id && req.session.user.role === 'trucker') {
+      return res.status(403).render('403');
     }
-  }
 
-  res.redirect('/dashboard');
+    await dbRun('DELETE FROM logs WHERE id = ?', id);
+
+    // Adjust user's totals if possible
+    if (log.user_id) {
+      await dbRun('UPDATE users SET hours = hours - ?, deliveries = deliveries - 1 WHERE id = ?', log.hours || 0, log.user_id);
+
+      if (log.user_id === req.session.user.id) {
+        // Refresh session user
+        const updatedUser = await dbGet("SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?", [log.user_id]);
+        req.session.user = updatedUser;
+        res.locals.user = updatedUser;
+      }
+    }
+
+    res.redirect('/dashboard');
+  } catch (e) {
+    console.error('/logs/:id/delete error', e);
+    res.status(500).send('Server error');
+  }
 });
 
 // =====================
 // ROUTES — ADMIN PANEL
 // =====================
-app.get("/admin", requireAdmin, (req, res) => {
-  console.log('ADMIN GET: session user=', req.session.user && req.session.user.role, 'cookies=', req.headers.cookie);
-  console.log('ADMIN GET: res.locals.csrfToken defined=', typeof res.locals.csrfToken !== 'undefined', 'value length=', typeof res.locals.csrfToken === 'string' ? res.locals.csrfToken.length : 'N/A');
-
-  const users = db.prepare(`
-    SELECT id, badge, username, role, hours, deliveries
-    FROM users
-    ORDER BY role, username
-  `).all();
-
-  const audits = db.prepare(`
-    SELECT a.*, admins.username AS admin_name, targets.username AS target_name
-    FROM admin_actions a
-    LEFT JOIN users admins ON admins.id = a.admin_id
-    LEFT JOIN users targets ON targets.id = a.target_id
-    ORDER BY a.created_at DESC
-    LIMIT 20
-  `).all();
-
+app.get("/admin", requireAdmin, async (req, res) => {
   try {
+    console.log('ADMIN GET: session user=', req.session.user && req.session.user.role, 'cookies=', req.headers.cookie);
+    console.log('ADMIN GET: res.locals.csrfToken defined=', typeof res.locals.csrfToken !== 'undefined', 'value length=', typeof res.locals.csrfToken === 'string' ? res.locals.csrfToken.length : 'N/A');
+
+    const users = await dbAll(`
+      SELECT id, badge, username, role, hours, deliveries
+      FROM users
+      ORDER BY role, username
+    `);
+
+    const audits = await dbAll(`
+      SELECT a.*, admins.username AS admin_name, targets.username AS target_name
+      FROM admin_actions a
+      LEFT JOIN users admins ON admins.id = a.admin_id
+      LEFT JOIN users targets ON targets.id = a.target_id
+      ORDER BY a.created_at DESC
+      LIMIT 20
+    `);
+
     res.render("admin", {
       user: req.session.user,
       users,
@@ -447,7 +529,7 @@ app.get("/admin", requireAdmin, (req, res) => {
 });
 
 // Admin: Add user (only executives may create executives)
-app.post('/admin/users/add', requireAdmin, (req, res) => {
+app.post('/admin/users/add', requireAdmin, async (req, res) => {
   const { badge, username, password, role } = req.body;
   if (!badge || !username || !password) {
     req.session.flash = { type: 'error', message: 'Badge, username and password are required' };
@@ -480,13 +562,12 @@ app.post('/admin/users/add', requireAdmin, (req, res) => {
 
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const info = db.prepare(`INSERT INTO users (badge, username, password, role, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(badge, username, hash, role, new Date().toISOString());
+    const info = await dbRun(`INSERT INTO users (badge, username, password, role, created_at) VALUES (?, ?, ?, ?, ?)`, badge, username, hash, role, new Date().toISOString());
 
     // record admin action
-    recordAdminAction(req.session.user.id, 'create_user', info.lastInsertRowid, { badge, username, role });
+    await recordAdminAction(req.session.user.id, 'create_user', info.lastID, { badge, username, role });
 
-    console.log('DEBUG admin create_user: assigner=', req.session.user.role, 'created=', username, 'role=', role, 'id=', info.lastInsertRowid);
+    console.log('DEBUG admin create_user: assigner=', req.session.user.role, 'created=', username, 'role=', role, 'id=', info.lastID);
 
     req.session.flash = { type: 'success', message: 'User created' };
   } catch (e) {
@@ -497,17 +578,17 @@ app.post('/admin/users/add', requireAdmin, (req, res) => {
 });
 
 // Admin: Edit user (form)
-app.get('/admin/users/:id/edit', requireAdmin, (req, res) => {
+app.get('/admin/users/:id/edit', requireAdmin, async (req, res) => {
   const id = req.params.id;
-  const u = db.prepare('SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?').get(id);
+  const u = await dbGet('SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?', [id]);
   if (!u) return res.status(404).send('User not found');
   res.render('admin_edit', { user: u, currentUserRole: req.session.user.role, csrfToken: res.locals.csrfToken });
 });
 
 // Admin: Save edits (role changes to executive restricted to executives)
-app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
+app.post('/admin/users/:id/edit', requireAdmin, async (req, res) => {
   const id = req.params.id;
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const user = await dbGet('SELECT * FROM users WHERE id = ?', [id]);
   if (!user) return res.status(404).send('User not found');
 
   // Prevent non-executives from editing executive accounts
@@ -532,7 +613,7 @@ app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
   const params = [];
 
   if (req.body.username && req.body.username !== user.username) {
-    const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(req.body.username);
+    const exists = await dbGet('SELECT id FROM users WHERE username = ?', [req.body.username]);
     if (exists) {
       req.session.flash = { type: 'error', message: 'Username already taken' };
       return res.redirect(`/admin/users/${id}/edit`);
@@ -541,7 +622,7 @@ app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
   }
 
   if (req.body.badge && String(req.body.badge) !== String(user.badge)) {
-    const exists = db.prepare('SELECT id FROM users WHERE badge = ?').get(req.body.badge);
+    const exists = await dbGet('SELECT id FROM users WHERE badge = ?', [req.body.badge]);
     if (exists) {
       req.session.flash = { type: 'error', message: 'Badge already taken' };
       return res.redirect(`/admin/users/${id}/edit`);
@@ -567,9 +648,9 @@ app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
 
   if (updates.length) {
     params.push(id);
-    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    await dbRun(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, ...params);
     // record admin action
-    recordAdminAction(req.session.user.id, 'edit_user', id, { updates: updates });
+    await recordAdminAction(req.session.user.id, 'edit_user', id, { updates: updates });
     req.session.flash = { type: 'success', message: 'User updated' };
   } else {
     req.session.flash = { type: 'info', message: 'No changes made' };
@@ -577,7 +658,7 @@ app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
 
   // If admin edited themselves, refresh session
   if (req.session.user && Number(req.session.user.id) === Number(id)) {
-    const updated = db.prepare('SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?').get(id);
+    const updated = await dbGet('SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?', [id]);
     req.session.user = updated;
     res.locals.user = updated;
   }
@@ -586,9 +667,9 @@ app.post('/admin/users/:id/edit', requireAdmin, (req, res) => {
 });
 
 // Admin: delete user
-app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
+app.post('/admin/users/:id/delete', requireAdmin, async (req, res) => {
   const id = req.params.id;
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const user = await dbGet('SELECT * FROM users WHERE id = ?', [id]);
   if (!user) return res.status(404).send('User not found');
   if (user.username === 'admin') { req.session.flash = { type: 'error', message: 'Cannot delete default admin' }; return res.redirect('/admin'); }
 
@@ -598,8 +679,8 @@ app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
     return res.redirect('/admin');
   }
 
-  db.prepare('DELETE FROM users WHERE id = ?').run(id);
-  recordAdminAction(req.session.user.id, 'delete_user', id, { username: user.username, role: user.role });
+  await dbRun('DELETE FROM users WHERE id = ?', id);
+  await recordAdminAction(req.session.user.id, 'delete_user', id, { username: user.username, role: user.role });
   req.session.flash = { type: 'success', message: 'User deleted' };
   res.redirect('/admin');
 });
@@ -607,21 +688,17 @@ app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
 // =====================
 // ROUTES — PROFILE
 // =====================
-app.get('/profile', requireLogin, (req, res) => {
-  const user = db.prepare(
-    "SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?"
-  ).get(req.session.user.id);
+app.get('/profile', requireLogin, async (req, res) => {
+  const user = await dbGet("SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?", [req.session.user.id]);
   res.render('profile', { user, csrfToken: res.locals.csrfToken });
 });
 
-app.post('/profile', requireLogin, (req, res) => {
-  const user = db.prepare(
-    "SELECT * FROM users WHERE id = ?"
-  ).get(req.session.user.id);
+app.post('/profile', requireLogin, async (req, res) => {
+  const user = await dbGet("SELECT * FROM users WHERE id = ?", [req.session.user.id]);
 
   // Check username collision if changed
   if (req.body.username && req.body.username !== user.username) {
-    const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(req.body.username);
+    const exists = await dbGet('SELECT id FROM users WHERE username = ?', [req.body.username]);
     if (exists) {
       req.session.flash = { type: 'error', message: 'Username already taken' };
       return res.redirect('/profile');
@@ -643,16 +720,14 @@ app.post('/profile', requireLogin, (req, res) => {
 
   if (updates.length) {
     params.push(user.id);
-    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    await dbRun(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, ...params);
     req.session.flash = { type: 'success', message: 'Profile updated' };
   } else {
     req.session.flash = { type: 'info', message: 'No changes made' };
   }
 
   // Refresh session user
-  const updatedUser = db.prepare(
-    "SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?"
-  ).get(user.id);
+  const updatedUser = await dbGet("SELECT id, badge, username, role, hours, deliveries FROM users WHERE id = ?", [user.id]);
   req.session.user = updatedUser;
   res.locals.user = updatedUser;
 
@@ -690,7 +765,12 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Node version: ${process.version}; NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+initDatabase().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Node version: ${process.version}; NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+  });
+}).catch((e) => {
+  console.error('Failed to initialize database, exiting', e);
+  process.exit(1);
 });
