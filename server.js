@@ -676,6 +676,21 @@ app.post("/contact", requireLogin, (req, res) => {
 // =====================
 const PORT = process.env.PORT || 3000;
 
+// Lightweight health endpoint for PaaS health checks
+app.get('/_health', (req, res) => res.sendStatus(200));
+
+// Process-level error handlers to ensure crashes are visible in logs
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException', err);
+  // Exit so platform can restart the process
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('unhandledRejection at', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Node version: ${process.version}; NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
 });
