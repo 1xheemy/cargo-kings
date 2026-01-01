@@ -107,7 +107,7 @@ input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px
 /* Auth (login/signup) page styles */
 html, body { height: 100%; }
 body.auth {
-  background-image: url('https://i.imgur.com/BPPZIsE.png');
+  background-image: url('https://i.imgur.com/mrTcZZU.png');
   background-repeat: no-repeat;
   background-attachment: fixed;
   background-size: cover;
