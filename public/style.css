@@ -111,9 +111,8 @@ body.auth {
   background-image: url('https://i.imgur.com/jrPehFt.png');
   background-repeat: no-repeat;
   background-attachment: fixed;
-  background-size: contain;
+  background-size: cover;
   background-position: center;
-  background-color: #111; /* fallback color for letterboxing */
 }
 
 /* Hide topbar and sidebar on auth pages and center content exactly */
