@@ -108,7 +108,7 @@ input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px
 html, body { height: 100%; }
 body.auth {
   /* Prefer local copy, fall back to external URL */
-  background-image: url('https://i.imgur.com/h0etyEU.png');
+  background-image: url('https://i.imgur.com/jrPehFt.png');
   background-repeat: no-repeat;
   background-attachment: fixed;
   background-size: cover;
